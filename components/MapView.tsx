@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Restaurant, LatLng } from '@/lib/types'
 
 declare global {
@@ -8,6 +8,39 @@ declare global {
     google: any
     initGoogleMap?: () => void
   }
+}
+
+// Google Maps 스크립트는 한 번만 로드해야 하므로 모듈 레벨에서 상태 관리
+let googleMapsScriptLoading = false
+let googleMapsLoaded = false
+const googleMapsCallbacks: Array<() => void> = []
+
+function loadGoogleMapsScript(apiKey: string, onLoad: () => void) {
+  if (googleMapsLoaded) {
+    onLoad()
+    return
+  }
+  googleMapsCallbacks.push(onLoad)
+  if (googleMapsScriptLoading) return  // 이미 로딩 중이면 콜백만 등록
+
+  googleMapsScriptLoading = true
+  window.initGoogleMap = () => {
+    googleMapsLoaded = true
+    googleMapsScriptLoading = false
+    googleMapsCallbacks.forEach(cb => cb())
+    googleMapsCallbacks.length = 0
+  }
+
+  const script = document.createElement('script')
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initGoogleMap&language=ko&region=KR`
+  script.async = true
+  script.defer = true
+  script.onerror = () => {
+    googleMapsScriptLoading = false
+    googleMapsCallbacks.length = 0
+  }
+  document.head.appendChild(script)
+  // 주의: 한번 로드된 Google Maps 스크립트는 제거하지 않음
 }
 
 interface MapViewProps {
@@ -31,15 +64,19 @@ export function MapView({
   const mapInstance = useRef<any>(null)
   const markersRef = useRef<Map<string, any>>(new Map())
   const myLocationMarkerRef = useRef<any>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
+  // stale closure 방지: onMarkerClick을 ref에 보관
+  const onMarkerClickRef = useRef(onMarkerClick)
+  const [mapLoaded, setMapLoaded] = useState(googleMapsLoaded)
   const [scriptError, setScriptError] = useState(false)
+
+  // onMarkerClick이 바뀔 때마다 ref 동기화 (마커 재생성 불필요)
+  useEffect(() => {
+    onMarkerClickRef.current = onMarkerClick
+  }, [onMarkerClick])
 
   // ── Google Maps 스크립트 로드 ──
   useEffect(() => {
-    if (window.google?.maps) {
-      setMapLoaded(true)
-      return
-    }
+    if (googleMapsLoaded) return  // 이미 로드됨
 
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
     if (!apiKey || apiKey.startsWith('YOUR_')) {
@@ -47,22 +84,10 @@ export function MapView({
       return
     }
 
-    window.initGoogleMap = () => setMapLoaded(true)
-
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initGoogleMap&language=ko&region=KR`
-    script.async = true
-    script.defer = true
-    script.onerror = () => setScriptError(true)
-    document.head.appendChild(script)
-
-    return () => {
-      if (document.head.contains(script)) document.head.removeChild(script)
-      delete window.initGoogleMap
-    }
+    loadGoogleMapsScript(apiKey, () => setMapLoaded(true))
   }, [])
 
-  // ── 지도 초기화 ──
+  // ── 지도 초기화 (스크립트 로드 완료 후 한 번만) ──
   useEffect(() => {
     if (!mapLoaded || !mapRef.current || mapInstance.current) return
 
@@ -83,7 +108,7 @@ export function MapView({
       console.error('지도 초기화 실패:', e)
       setScriptError(true)
     }
-  }, [mapLoaded, userLocation])
+  }, [mapLoaded])  // userLocation 제거: 별도 effect에서 panTo 처리
 
   // ── 현재 위치로 지도 이동 ──
   useEffect(() => {
@@ -123,6 +148,7 @@ export function MapView({
   }, [mapLoaded, userLocation])
 
   // ── 식당 마커들 ──
+  // onMarkerClick은 ref 사용으로 dependency에서 제외 → 불필요한 마커 재생성 방지
   useEffect(() => {
     if (!mapLoaded || !mapInstance.current) return
 
@@ -142,16 +168,9 @@ export function MapView({
       const emoji = isFav ? '❤' : isSolo ? '🍽' : '📍'
       const priceText = `${(restaurant.minPrice / 1000).toFixed(0)}천~`
 
-      // SVG 커스텀 마커
       const width = isSelected ? 88 : 80
       const height = isSelected ? 44 : 40
-      const svgMarker = encodeURIComponent(`
-        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-          <rect x="2" y="2" width="${width - 4}" height="28" rx="14" fill="${fillColor}" stroke="white" stroke-width="2"/>
-          <text x="${width / 2}" y="19" text-anchor="middle" fill="white" font-size="11" font-weight="bold" font-family="sans-serif">${emoji} ${priceText}</text>
-          <polygon points="${width / 2 - 6},30 ${width / 2 + 6},30 ${width / 2},${height - 2}" fill="${fillColor}"/>
-        </svg>
-      `)
+      const svgMarker = encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect x="2" y="2" width="${width - 4}" height="28" rx="14" fill="${fillColor}" stroke="white" stroke-width="2"/><text x="${width / 2}" y="19" text-anchor="middle" fill="white" font-size="11" font-weight="bold" font-family="sans-serif">${emoji} ${priceText}</text><polygon points="${width / 2 - 6},30 ${width / 2 + 6},30 ${width / 2},${height - 2}" fill="${fillColor}"/></svg>`)
 
       const marker = new window.google.maps.Marker({
         position: { lat: restaurant.location.lat, lng: restaurant.location.lng },
@@ -166,7 +185,8 @@ export function MapView({
       })
 
       marker.addListener('click', () => {
-        onMarkerClick(restaurant)
+        // ref를 통해 항상 최신 핸들러 사용
+        onMarkerClickRef.current(restaurant)
         mapInstance.current.panTo({
           lat: restaurant.location.lat,
           lng: restaurant.location.lng,
@@ -175,7 +195,8 @@ export function MapView({
 
       markersRef.current.set(restaurant.id, marker)
     })
-  }, [mapLoaded, restaurants, selectedRestaurant, favorites, onMarkerClick])
+  }, [mapLoaded, restaurants, selectedRestaurant, favorites])
+  // onMarkerClick 제외 (ref로 처리)
 
   // ── API 키 없을 때 안내 ──
   if (scriptError) {

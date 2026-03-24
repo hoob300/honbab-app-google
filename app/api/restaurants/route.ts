@@ -130,11 +130,13 @@ function mapGooglePlace(place: any, idx: number, userLat: number, userLng: numbe
   const category = mapGoogleType(place.types || [])
   const priceInfo = mapPriceLevel(place.price_level)
 
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY
-  const thumbnail = place.photos?.[0]?.photo_reference && apiKey
-    ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=${place.photos[0].photo_reference}&key=${apiKey}`
-    : ''
+  // 보안: 서버 API 키를 클라이언트 응답에 포함하지 않음
+  // 사진은 /api/place-photo 프록시를 통해 제공
+  const photoRef = place.photos?.[0]?.photo_reference || ''
+  const thumbnail = photoRef ? `/api/place-photo?ref=${encodeURIComponent(photoRef)}` : ''
 
+  // Google Places는 혼밥/1인석 데이터 없음 → 검색어("혼밥", "1인") 기반으로 추정
+  // 이 API에서 반환된 모든 결과는 혼밥 가능으로 간주 (검색어 자체가 필터 역할)
   return {
     id: `google-${place.place_id || idx}`,
     name: place.name,
@@ -142,8 +144,8 @@ function mapGooglePlace(place: any, idx: number, userLat: number, userLng: numbe
     address: place.vicinity || place.formatted_address || '',
     phone: '',
     location: { lat: placeLat, lng: placeLng },
-    soloFriendly: true,
-    hasSoloSeat: false,
+    soloFriendly: true,   // 혼밥/1인 키워드로 검색된 결과이므로 true
+    hasSoloSeat: true,    // Google Places에 명시 데이터 없음, 검색 의도 기반 추정
     avgPrice: priceInfo.avg,
     minPrice: priceInfo.min,
     priceRange: priceInfo.range,
@@ -192,13 +194,15 @@ export async function GET(request: NextRequest) {
           }
         }
       } else {
-        // 기본: 현재 위치 주변 혼밥 가능 식당 검색
+        // 기본: 현재 위치 주변 혼밥 가능 식당 검색 (병렬 호출로 레이턴시 단축)
         const keywords = categories.length > 0
           ? categories.map(c => `${c} 식당`)
           : ['혼밥 식당', '1인 식당']
 
-        for (const kw of keywords) {
-          const results = await searchGooglePlacesNearby(lat, lng, kw, 2000)
+        const allResults = await Promise.all(
+          keywords.map(kw => searchGooglePlacesNearby(lat, lng, kw, 2000))
+        )
+        for (const results of allResults) {
           for (const p of results) {
             if (p.place_id && !seen.has(p.place_id)) {
               seen.add(p.place_id)

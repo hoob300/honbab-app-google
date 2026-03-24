@@ -51,7 +51,7 @@ export default function HomePage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null)
   const [geocoding, setGeocoding] = useState(false)
-  const [geocodeMsg, setGeocodeMg] = useState<string | null>(null)
+  const [geocodeMsg, setGeocodeMsg] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // ── 커스텀 훅 ──
@@ -85,7 +85,7 @@ export default function HomePage() {
     if (!q) return
 
     setGeocoding(true)
-    setGeocodeMg(null)
+    setGeocodeMsg(null)
 
     // 지역명을 좌표로 변환 (Nominatim 지오코딩 - 한국 우선)
     try {
@@ -103,15 +103,15 @@ export default function HomePage() {
 
       if (data.length > 0) {
         setSearchCenter({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) })
-        setGeocodeMg(`📍 "${data[0].display_name.split(',')[0]}" 으로 이동`)
-        setTimeout(() => setGeocodeMg(null), 3000)
+        setGeocodeMsg(`📍 "${data[0].display_name.split(',')[0]}" 으로 이동`)
+        setTimeout(() => setGeocodeMsg(null), 3000)
       } else {
-        setGeocodeMg(`⚠️ "${q}" 위치를 찾지 못했어요. 현재 위치 기준으로 검색합니다.`)
-        setTimeout(() => setGeocodeMg(null), 3000)
+        setGeocodeMsg(`⚠️ "${q}" 위치를 찾지 못했어요. 현재 위치 기준으로 검색합니다.`)
+        setTimeout(() => setGeocodeMsg(null), 3000)
       }
     } catch {
-      setGeocodeMg('위치 검색 중 오류가 발생했어요.')
-      setTimeout(() => setGeocodeMg(null), 2000)
+      setGeocodeMsg('위치 검색 중 오류가 발생했어요.')
+      setTimeout(() => setGeocodeMsg(null), 2000)
     } finally {
       setGeocoding(false)
     }
@@ -126,7 +126,7 @@ export default function HomePage() {
   const handleClearSearch = useCallback(() => {
     setSearchInput('')
     setSearchCenter(null)
-    setGeocodeMg(null)
+    setGeocodeMsg(null)
     setFilters(prev => ({ ...prev, searchQuery: '' }))
   }, [])
 

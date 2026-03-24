@@ -227,7 +227,7 @@ export function FilterBar({ filters, onChange, totalResults }: FilterBarProps) {
               <strong className="text-green-600">{totalResults}개</strong> 식당
             </span>
             <button
-              onClick={() => onChange(DEFAULT_FILTERS)}
+              onClick={() => onChange({ ...DEFAULT_FILTERS, sortBy: filters.sortBy, searchQuery: filters.searchQuery })}
               className="text-sm text-gray-500 underline hover:text-gray-700"
             >
               전체 초기화
