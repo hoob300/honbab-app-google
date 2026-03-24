@@ -63,6 +63,7 @@ export function MapView({
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<any>(null)
   const markersRef = useRef<Map<string, any>>(new Map())
+  const searchPinRef = useRef<any>(null)  // 검색 위치 핀 마커
   const myLocationMarkerRef = useRef<any>(null)
   // stale closure 방지: onMarkerClick을 ref에 보관
   const onMarkerClickRef = useRef(onMarkerClick)
@@ -116,11 +117,46 @@ export function MapView({
     mapInstance.current.panTo({ lat: userLocation.lat, lng: userLocation.lng })
   }, [userLocation])
 
-  // ── 검색 지역으로 지도 이동 ──
+  // ── 검색 지역으로 지도 이동 + 핀 표시 ──
   useEffect(() => {
+    // 기존 검색 핀 제거
+    if (searchPinRef.current) {
+      searchPinRef.current.setMap(null)
+      searchPinRef.current = null
+    }
+
     if (!mapInstance.current || !searchCenter) return
+
     mapInstance.current.panTo({ lat: searchCenter.lat, lng: searchCenter.lng })
     mapInstance.current.setZoom(14)
+
+    if (!window.google?.maps) return
+
+    // 검색 위치 핀 마커 (빨간 드롭핀 + 파동 애니메이션)
+    const pinSvg = encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="44" height="56" viewBox="0 0 44 56">
+        <!-- 외부 파동 -->
+        <circle cx="22" cy="22" r="20" fill="rgba(239,68,68,0.15)" stroke="rgba(239,68,68,0.3)" stroke-width="1"/>
+        <!-- 핀 몸체 -->
+        <circle cx="22" cy="20" r="14" fill="#ef4444" stroke="white" stroke-width="3"/>
+        <!-- 핀 꼭짓점 -->
+        <path d="M22 34 L15 22 L29 22 Z" fill="#ef4444"/>
+        <!-- 중앙 흰 점 -->
+        <circle cx="22" cy="20" r="5" fill="white"/>
+      </svg>
+    `)
+
+    searchPinRef.current = new window.google.maps.Marker({
+      position: { lat: searchCenter.lat, lng: searchCenter.lng },
+      map: mapInstance.current,
+      title: '검색 위치',
+      icon: {
+        url: `data:image/svg+xml,${pinSvg}`,
+        scaledSize: new window.google.maps.Size(44, 56),
+        anchor: new window.google.maps.Point(22, 54),
+      },
+      zIndex: 5000,
+    })
   }, [searchCenter])
 
   // ── 내 위치 마커 ──
